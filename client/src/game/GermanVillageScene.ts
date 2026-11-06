@@ -84,7 +84,9 @@ export class GermanVillageScene extends Phaser.Scene {
 
     // 2. Parallax Sky & Alpine Mountains
     const sky = this.add.graphics().setDepth(0)
-    sky.fillGradientStyle(0x38bdf8, 0x38bdf8, 0xbae6fd, 0xbae6fd, 1)
+    sky.fillStyle(0x38bdf8, 1)
+    sky.fillRect(0, 0, 2400, height)
+    sky.fillGradientStyle(0x38bdf8, 0x38bdf8, 0xbae6fd, 0xbae6fd, 1, 1, 1, 1)
     sky.fillRect(0, 0, 2400, height)
 
     for (let x = 80; x < 2400; x += 440) {
@@ -402,6 +404,7 @@ export class GermanVillageScene extends Phaser.Scene {
       points: data.points,
     }
     this.events.emit('game:block-hit', eventPayload)
+    this.game.events.emit('game:block-hit', eventPayload)
   }
 
   private createPlayerContainer(name: string, tintColor: number, x: number, y: number): Phaser.GameObjects.Container {

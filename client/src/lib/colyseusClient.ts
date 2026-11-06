@@ -16,26 +16,64 @@ const entries = <T>(value?: Map<string, T> | Record<string, T> | null): [string,
 export const playersFromState = (state?: RoomState | null): GamePlayer[] => entries(state?.players).map(([id,p]) => ({ id, name:p.name, character:p.character, score:p.score, coins:p.coins, lives:p.lives }))
 export type GameRoom = Room<RoomState>
 export const connectPlayerRoom = async (endpoint: string, roomCode: string, name: string, character: string): Promise<GameRoom> => {
-  const sdk = client ?? (client = new Client(endpoint))
+  let sdk = client ?? (client = new Client(endpoint))
   const normalized = roomCode.trim().toUpperCase()
   if (!/^[A-Z0-9]{4}$/.test(normalized)) throw new Error('Kode room harus 4 karakter.')
-  const response = await sdk.http.get<{ roomId: string }>(`/api/rooms/${encodeURIComponent(normalized)}`)
-  const room: GameRoom = await sdk.joinById<RoomState>(response.data.roomId, { name, character, role: 'player' })
-  attachRoomSync(room)
-  room.send('player:select', { name, character })
-  return room
+
+  try {
+    let targetId = normalized
+    try {
+      const response = await sdk.http.get<{ roomId: string }>(`/api/rooms/${encodeURIComponent(normalized)}`)
+      if (response?.data?.roomId) targetId = response.data.roomId
+    } catch {
+      /* Fallback to direct roomCode */
+    }
+    const room: GameRoom = await sdk.joinById<RoomState>(targetId, { name, character, role: 'player' })
+    attachRoomSync(room)
+    room.send('player:select', { name, character })
+    return room
+  } catch (err) {
+    const fallbackEndpoint = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:2567`
+    if (endpoint !== fallbackEndpoint) {
+      sdk = client = new Client(fallbackEndpoint)
+      const fallbackRoom: GameRoom = await sdk.joinById<RoomState>(normalized, { name, character, role: 'player' })
+      attachRoomSync(fallbackRoom)
+      fallbackRoom.send('player:select', { name, character })
+      return fallbackRoom
+    }
+    throw err
+  }
 }
+
 export const startHostedRoom = async (endpoint: string): Promise<GameRoom> => {
   const sdk = client ?? (client = new Client(endpoint))
-  const room: GameRoom = await sdk.create<RoomState>('game', { role: 'host' })
-  attachRoomSync(room)
-  useGameStore.getState().setRoomId(room.state.roomCode ?? room.roomId)
-  return room
+  try {
+    const room: GameRoom = await sdk.create<RoomState>('game', { role: 'host' })
+    useGameStore.getState().setRoomId(room.roomId)
+    attachRoomSync(room)
+    return room
+  } catch (err) {
+    const fallbackEndpoint = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:2567`
+    if (endpoint !== fallbackEndpoint) {
+      client = new Client(fallbackEndpoint)
+      const fallbackRoom: GameRoom = await client.create<RoomState>('game', { role: 'host' })
+      useGameStore.getState().setRoomId(fallbackRoom.roomId)
+      attachRoomSync(fallbackRoom)
+      return fallbackRoom
+    }
+    throw err
+  }
 }
 function attachRoomSync(room: GameRoom) {
-  const syncPlayers = () => useGameStore.getState().setPlayers(playersFromState(room.state))
-  room.onStateChange(syncPlayers)
-  room.onStateChange((state) => {
+  const syncPlayers = () => {
+    if (room.state) {
+      useGameStore.getState().setPlayers(playersFromState(room.state))
+    }
+  }
+  room.onStateChange(() => {
+    syncPlayers()
+    const state = room.state
+    if (!state) return
     if (state.status) useGameStore.getState().setGameStatus(state.status as 'lobby' | 'playing' | 'paused' | 'ended')
     if (state.remainingSeconds !== undefined) useGameStore.getState().setRemainingSeconds(state.remainingSeconds)
     if (state.category) useGameStore.getState().setCategory(state.category)

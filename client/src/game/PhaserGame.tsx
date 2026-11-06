@@ -18,6 +18,11 @@ export function PhaserGame({
 }) {
   const mount = useRef<HTMLDivElement>(null)
   const game = useRef<Phaser.Game | null>(null)
+  const onBlockHitRef = useRef(onBlockHit)
+
+  useEffect(() => {
+    onBlockHitRef.current = onBlockHit
+  }, [onBlockHit])
 
   useEffect(() => {
     if (!mount.current) return
@@ -46,18 +51,20 @@ export function PhaserGame({
       scene: [GermanVillageScene],
     }
 
-    game.current = new Phaser.Game(config)
+    const instance = new Phaser.Game(config)
+    game.current = instance
 
-    const scene = game.current.scene.getScene('GermanVillage')
-    if (scene && onBlockHit) {
-      scene.events.on('game:block-hit', onBlockHit)
+    const listener = (data: BlockHitEvent) => {
+      onBlockHitRef.current?.(data)
     }
+    instance.events.on('game:block-hit', listener)
 
     return () => {
-      game.current?.destroy(true)
+      instance.events.off('game:block-hit', listener)
+      instance.destroy(true)
       game.current = null
     }
-  }, [onBlockHit])
+  }, [])
 
   useEffect(() => {
     game.current?.scene.getScene('GermanVillage')?.events.emit('player:update', players)

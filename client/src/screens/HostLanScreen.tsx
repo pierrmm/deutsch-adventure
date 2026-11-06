@@ -97,12 +97,29 @@ export default function HostLanScreen() {
 
   useEffect(() => {
     if (manual) return
-    fetch('/api/lan')
-      .then((r) => r.json() as Promise<{ preferred: string }>)
-      .then((d) => {
-        if (d.preferred) setIp(d.preferred)
-      })
-      .catch(() => undefined)
+    let active = true
+    const getLanIp = async () => {
+      try {
+        const r = await fetch('/api/lan')
+        if (r.ok) {
+          const d = (await r.json()) as { preferred?: string }
+          if (active && d.preferred) { setIp(d.preferred); return }
+        }
+      } catch {
+        /* try fallback */
+      }
+      try {
+        const r2 = await fetch(`http://${location.hostname}:2567/api/lan`)
+        if (r2.ok) {
+          const d2 = (await r2.json()) as { preferred?: string }
+          if (active && d2.preferred) { setIp(d2.preferred); return }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    void getLanIp()
+    return () => { active = false }
   }, [manual])
 
   const displayIp = ip || location.hostname

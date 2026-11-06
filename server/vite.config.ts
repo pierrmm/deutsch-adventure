@@ -1,9 +1,35 @@
 import { networkInterfaces } from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ViteDevServer } from "vite";
+import type { Plugin, ViteDevServer } from "vite";
 import { defineConfig } from "vite";
 import { colyseus } from "colyseus/vite";
 import tailwindcss from "../client/node_modules/@tailwindcss/vite/dist/index.mjs";
+
+function lanPlugin(): Plugin {
+  return {
+    name: "lan-ip-middleware",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/lan", (_request: IncomingMessage, response: ServerResponse) => {
+        const addresses = Object.values(networkInterfaces())
+          .flatMap((items) => items ?? [])
+          .filter((item) => item.family === "IPv4" && !item.internal && !item.address.startsWith("169.254."))
+          .map((item) => item.address);
+        response.setHeader("Content-Type", "application/json");
+        response.end(
+          JSON.stringify({
+            addresses,
+            preferred:
+              addresses.find((ip) => ip.startsWith("192.168.")) ??
+              addresses.find((ip) => ip.startsWith("10.")) ??
+              addresses.find((ip) => ip.startsWith("172.")) ??
+              addresses[0] ??
+              "",
+          }),
+        );
+      });
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => ({
   root: mode === "client" ? process.cwd() : "../client",
@@ -12,15 +38,9 @@ export default defineConfig(({ mode }) => ({
     host: true,
     port: 5173,
     strictPort: true,
-    configureServer(vite: ViteDevServer) {
-      vite.middlewares.use("/api/lan", (_request: IncomingMessage, response: ServerResponse) => {
-        const addresses = Object.values(networkInterfaces()).flatMap((items) => items ?? []).filter((item) => item.family === "IPv4" && !item.internal && !item.address.startsWith("169.254.")).map((item) => item.address);
-        response.setHeader("Content-Type", "application/json");
-        response.end(JSON.stringify({ addresses, preferred: addresses.find((ip) => ip.startsWith("192.168.")) ?? addresses.find((ip) => ip.startsWith("10.")) ?? addresses.find((ip) => ip.startsWith("172.")) ?? addresses[0] ?? "" }));
-      });
-    },
   },
   plugins: [
+    lanPlugin(),
     // The plugin declares a second build environment (dist/server), so every
     // `vite build` builds both halves. `--mode client` drops it when you only
     // want the static client — e.g. deploying it separately from the server.
@@ -29,3 +49,4 @@ export default defineConfig(({ mode }) => ({
     ...(mode === "client" ? [] : [tailwindcss(), colyseus({ serverEntry: "../server/src/app.config.ts" })]),
   ],
 }));
+
